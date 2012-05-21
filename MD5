@@ -1,12 +1,13 @@
-14ac5fcf83fe419a51609778a8710404 *DESCRIPTION
-628dc56ad604c490df0b8cfced37a034 *NAMESPACE
-79de7ff3bd09ecaf1cdfbd62b7883858 *NEWS
-cd79e88dac538d743bf73a2c1e20ef1f *R/SpatialProbit-MCMC.R
+e53716c6767c327b218f9153d15b8453 *DESCRIPTION
+e66fa1aa0c237f8a4485c843ed690512 *NAMESPACE
+38dabce0374802936244047ca6f7a9a9 *NEWS
+15d351d2683a8eae532e36af4f5fb2b8 *R/SpatialProbit-MCMC.R
 f9c9a78ea40a954ec62be15cf4f3496a *R/matrix_operations.r
 775ca48d2e2753b1a6bc1008823a4c4a *R/sar_base.r
 1967774f3fd51fe0a792f2a941467846 *R/stats_conf_intervals.r
 ea4e1e6de75dc82f539d506412c8fdd9 *R/stats_distributions.r
 0606da8d6e3a7396bf11bc1e3b2b7a9f *R/utility_functions.r
+856514c56bcf23799ce7bc7be2652e23 *man/c.sarprobit.Rd
 45e4669ca57b85b007d1de918f89e959 *man/coef.sarprobit.Rd
 29ee9b2e5ebc25481d991c91694b79e4 *man/kNearestNeighbors.Rd
 171af45ef5112f7c5299d866ae08bd34 *man/plot.sarprobit.Rd
