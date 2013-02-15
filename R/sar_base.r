@@ -77,7 +77,7 @@ sar_eigs <- function(eflag, W){
   # compute eigenvalues  
   if( eflag == 1 ){
     t0           <- Sys.time()
-    lambda       <- as.real( eigen( W, only.values=TRUE )$values )
+    lambda       <- as.double( eigen( W, only.values=TRUE )$values )
     results$rmin <- 1/min(lambda)
     results$rmax <- 1 
     results$time <- Sys.time() - t0 
@@ -103,7 +103,7 @@ sar_eigs <- function(eflag, W){
 # Miguel Godinho de Matos
 # Carnegie Mellon University
 # Dept. Engineering & Public Policy
-sar_lndet <- function(ldetflag,W,rmin,rmax){
+sar_lndet_old <- function(ldetflag,W,rmin,rmax){
   results       <- NULL
   results$time  <- NULL
   results$detval<-NULL
@@ -115,8 +115,11 @@ sar_lndet <- function(ldetflag,W,rmin,rmax){
   }else if( ldetflag == 1 ) { 
     t0   <- Sys.time()
     tmp  <- lndetChebyshev(W,rmin,rmax)
-  }else{
+  }else if( ldetflag == 2 ) {
     # use Pace and Barry, 1999 MC approximation
+  
+  }else{
+   
     # use Pace and Barry, 1998 spline interpolation
     stop('sar_lndet: method not implemented')
   }
@@ -131,6 +134,65 @@ sar_lndet <- function(ldetflag,W,rmin,rmax){
   results$time  <- Sys.time() - t0
   return( results )
 }
+
+#---------------------------------------------------
+# PURPOSE: compute the log determinant |I_n - rho*W|
+# using the user-selected (or default) method
+# ---------------------------------------------------
+# USAGE: detval = sar_lndet(lflag,W,rmin,rmax)
+# where ldetflag,rmin,rmax,W contains input flags 
+# ---------------------------------------------------
+# Code is now based on method spdep::do_ldet written by Roger Bivand
+# ldetflag = 0 : Pace and Barry (1997) grid
+# Pace, R. and Barry, R. (1997). Quick computation of spatial autoregressive estimators.
+# Geographics Analysis, 29(3):232–247.
+#
+# ldetflag = 1 : Pace and LeSage (2004) Chebyshev approximation
+# Pace, R. and LeSage, J. (2004). Chebyshev approximation of log-determinants of
+# spatial weight matrices. Computational Statistics & Data Analysis, 45(2):179–
+# 196.
+#
+# ldetflag = 2 : Barry and Pace (1999) MC approximation
+# Barry, R. and Pace, R. (1999). Monte Carlo estimates of the log determinant of
+# large sparse matrices. Linear Algebra and its Applications, 289(1-3):41–54.
+sar_lndet <- function(ldetflag,W,rmin,rmax){
+  results       <- NULL
+  env <- new.env(parent=globalenv())
+  listw <- mat2listw(W)
+  assign("n", nrow(W), envir=env)
+  assign("listw", listw, envir=env)
+  assign("family", "SAR", envir=env)
+  assign("similar", FALSE, envir=env)
+
+  # do lndet approximation calculations if needed
+  if( ldetflag == 0 ){ # no approximation
+    t0            <- Sys.time()
+    SE_classic_setup(env)
+    # fine grid is already computed
+    results$detval  <- get("detval1", env)
+  }else if( ldetflag == 1 ) { 
+    t0   <- Sys.time()
+    cheb_setup(env, q=4)  # Chebychev approximation, q = 4
+    # For Chebyshev-Approximation we must compute the fine grid with do_ldet
+    # to be later used for numerical integration
+    detval1 <- seq(rmin, rmax, 0.001)
+    detval2 <- sapply(detval1, do_ldet, env)
+    results$detval  <- cbind(detval1, detval2)
+  } else if( ldetflag == 2 ) {
+    t0   <- Sys.time()
+    mcdet_setup(env, p=16, m=30, which=1)
+    detval1 <- seq(rmin, rmax, 0.001)
+    detval2 <- sapply(detval1, do_ldet, env)
+    results$detval  <- cbind(detval1, detval2)
+  } else{
+    # TODO: Pace and Barry, 1998 spline interpolation
+    stop('sar_lndet: method not implemented')
+  }
+  results$time   <- Sys.time() - t0
+  return( results )
+ }
+ 
+
 
 # PURPOSE: computes Pace and Barry's grid for log det(I-rho*W) using sparse matrices
 # -----------------------------------------------------------------------
@@ -176,7 +238,7 @@ lndetfull <- function( W, rmin, rmax ){
     rho             <- rvec[i]
     z               <- In - rho*W
     results$rho[i]  <- rho
-    results$lndet[i]<- as.real(determinant(z, logarithm=TRUE)$modulus) 
+    results$lndet[i]<- as.double(determinant(z, logarithm=TRUE)$modulus) 
   }  
   return(results)
 }

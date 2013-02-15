@@ -1,18 +1,19 @@
-\name{sarprobit}
-\alias{sar_probit_mcmc}
-\alias{sarprobit}
-\title{Bayesian estimation of the SAR probit model}
+\name{semprobit}
+\alias{sem_probit_mcmc}
+\alias{semprobit}
+\title{Bayesian estimation of the SEM probit model}
 
 \description{
-Bayesian estimation of the spatial autoregressive probit model (SAR probit model).
+Bayesian estimation of the probit model with spatial errors (SEM probit model).
 }
 
 \usage{
-sarprobit(formula, W, data, subset, ...)
+semprobit(formula, W, data, subset, ...)
 
-sar_probit_mcmc(y, X, W, ndraw = 1000, burn.in = 100, thinning = 1, 
-  prior=list(a1=1, a2=1, c=rep(0, ncol(X)), T=diag(ncol(X))*1e12), 
-  start = list(rho = 0.75, beta = rep(0, ncol(X))),
+sem_probit_mcmc(y, X, W, ndraw = 1000, burn.in = 100, thinning = 1, 
+  prior=list(a1=1, a2=1, c=rep(0, ncol(X)), T=diag(ncol(X))*1e12,
+  nu = 0, d0 = 0, lflag = 0), 
+  start = list(rho = 0.75, beta = rep(0, ncol(X)), sige = 1),
   m=10, showProgress=FALSE)
 }
 \arguments{
@@ -30,36 +31,45 @@ sar_probit_mcmc(y, X, W, ndraw = 1000, burn.in = 100, thinning = 1,
   \item{showProgress}{Flag if progress bar should be shown. Defaults to FALSE.}
   \item{formula}{an object of class "\code{\link{formula}}" (or one that can be coerced to that class): a symbolic description of the model to be fitted.}
   \item{data}{an optional data frame, list or environment (or object coercible by \code{as.data.frame} to a data frame) containing the variables in the model. 
-              If not found in data, the variables are taken from environment(formula), typically the environment from which sarprobit is called.}
+              If not found in data, the variables are taken from environment(formula), typically the environment from which semprobit is called.}
   \item{subset}{an optional vector specifying a subset of observations to be used in the fitting process.}
   \item{...}{additional arguments to be passed}
 }
 \details{
-Bayesian estimates of the spatial autoregressive probit model (SAR probit model)
+Bayesian estimates of the probit model with spatial errors (SEM probit model)
 \deqn{
-  y = \rho W y + X \beta + \epsilon, \epsilon \sim N(0, I_n)
+  z = X \beta + u, \\
+  u = \rho W u + \epsilon, \epsilon \sim N(0, \sigma^2_{\epsilon} I_n)
 }{
-  y = rho*W*y + X*beta + e, e ~ N(0,I_n)
-}  
-where y is a binary 0,1 \eqn{(n \times 1)}{(n x 1)} vector of observations, 
-\eqn{\beta}{beta} is a \eqn{(k \times 1)}{(k x 1)} vector of parameters associated with the \eqn{(n \times k)}{(n x k)} data matrix X.
-The error variance \eqn{\sigma_e}{sigma_e} is set to 1 for identification.
+  z = X*beta + u, \\
+  u = rho*W*u + e, e ~ N(0,sige * I_n)
+}
+which leads to the data-generating process
+\deqn{
+  z = X \beta + (I_n - \rho W)^{-1} \epsilon
+}{
+  z = X beta + (I_n - rho W)^{-1} e
+}    
+where y is a binary 0,1 \eqn{(n \times 1)}{(n x 1)} vector of observations for \eqn{z < 0} and \eqn{z \ge 0}{z >= 0}. 
+\eqn{\beta}{beta} is a \eqn{(k \times 1)}{(k x 1)} 
+vector of parameters associated with the \eqn{(n \times k)}{(n x k)} data matrix X.
 
 The prior distributions are 
- \eqn{\beta \sim N(c,T)}{beta ~ N(c,T)} 
+ \eqn{\beta \sim N(c,T)}{beta ~ N(c,T)},
+ \eqn{\sigma^2_{\epsilon} \sim IG(a1, a2)}, 
  and  
  \eqn{\rho \sim Uni(rmin,rmax)}{rho ~ Uni(rmin,rmax)} 
  or 
  \eqn{\rho \sim Beta(a1,a2)}{or rho ~ Beta(a1,a2)}.
 }
 \value{
-Returns a structure of class \code{sarprobit}:
-%\item{meth }{ 'sarprobit' }
+Returns a structure of class \code{semprobit}:
+%\item{meth }{ 'semprobit' }
 \item{beta }{ posterior mean of bhat based on draws }
 \item{rho }{ posterior mean of rho based on draws }
 \item{bdraw }{ beta draws (ndraw-nomit x nvar) }
 \item{pdraw }{ rho  draws (ndraw-nomit x 1) }
-%\item{sdraw }{ sige draws (ndraw-nomit x 1) }
+\item{sdraw }{ sige draws (ndraw-nomit x 1) }
 \item{total }{ a matrix (ndraw,nvars-1) total x-impacts }
 \item{direct }{ a matrix (ndraw,nvars-1) direct x-impacts }
 \item{indirect }{ a matrix (ndraw,nvars-1) indirect x-impacts }
@@ -99,7 +109,6 @@ LeSage, J. and Pace, R. K. (2009), \emph{Introduction to Spatial Econometrics}, 
 
 \author{
 adapted to and optimized for R by Stefan Wilhelm <wilhelm@financial.com> 
-and Miguel Godinho de Matos <miguelgodinhomatos@cmu.edu>
 based on code from James P. LeSage}
 
 \seealso{
@@ -114,6 +123,7 @@ n <- 200
 
 # true parameters
 beta <- c(0, 1, -1)
+sige <- 2
 rho <- 0.75
 
 # design matrix with two standard normal variates as "covariates"
@@ -130,16 +140,16 @@ W <- sparseMatrix(i=rep(1:n, each=m),
   j=replicate(n, sample(x=1:n, size=m, replace=FALSE)), x=1/m, dims=c(n, n))
 
 # innovations
-eps <- rnorm(n=n, mean=0, sd=1)
+eps <- sqrt(sige)*rnorm(n=n, mean=0, sd=1)
 
 # generate data from model 
 S <- I_n - rho * W
-z <- solve(qr(S), X \%*\% beta + eps)
-y <- as.vector(z >= 0)  # 0 or 1, FALSE or TRUE
+z <- X \%*\% beta + solve(qr(S), eps)
+y <- as.double(z >= 0)  # 0 or 1, FALSE or TRUE
 
-# estimate SAR probit model
-sarprobit.fit1 <- sar_probit_mcmc(y, X, W, ndraw=500, burn.in=100, 
+# estimate SEM probit model
+semprobit.fit1 <- semprobit(y ~ X - 1, W, ndraw=500, burn.in=100, 
   thinning=1, prior=NULL)
-summary(sarprobit.fit1)
+summary(semprobit.fit1)
 }
 }

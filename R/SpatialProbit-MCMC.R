@@ -8,35 +8,14 @@
 #
 ################################################################################
 
-library(tmvtnorm)
-library(mvtnorm)
-library(Matrix)    # sparseMatrix
-
-# spdep::knearneigh  - k nearest neighbours for spatial weights
-# build spatial weight matrix W based on the k nearest neighbors (kNN) (default: k=6)
-#
-# @param X point coordinates (x, y)
-# @param m number of neighbors
-# @return sparse matrix (n x n) with nearest neigbors
-kNearestNeighbors <- function(x, y, k=6) {
-  # number of observations
-  n <- length(x)
-  
-  # spatial weight matrix W based on the k= nearest neighbors
-  D <- matrix(NA, n, k)  # (n x k) index matrix to the 6 nearest neigbhors from point i
-  for (i in 1:n) {
-    px <- x[i]
-    py <- y[i]
-    # euclidean dist from all points to p
-    d <- sqrt((x - px)^2 + (y - py)^2)
-    
-    # determine the m nearest neighbors (rank 1 is the point itself, ranks 2..(m+1) are the m nearest neighbors
-    # TODO: if 2 points have the same distance, e.g. ranks=1, 2, 2.5, 2.5 are odd
-    D[i, ] <- which(rank(d) %in% 2:(k+1))
-  }
-  # sparse matrix representation for spatial weight matrix W
-  W <- sparseMatrix(i = rep(1:n, k), j=as.vector(D), x=1/k)
-  return(W)
+if (FALSE) {
+ library(tmvtnorm)
+ library(mvtnorm)
+ library(Matrix)    # sparseMatrix
+ source("sar_base.r")
+ source("matrix_operations.r")
+ source("stats_distributions.r")
+ source("utility_functions.r") 
 }
 
 # estimated tr(W^i) for i=1,...,100
@@ -52,19 +31,16 @@ kNearestNeighbors <- function(x, y, k=6) {
 # @return (n x o) matrix with tr(W^i) in each column, for i=1..,o
 tracesWi <- function(W, o=100, iiter=50) {
   n <- nrow(W)
-  trW_i <- matrix( data=0, nrow=n, ncol=o )   # n x 100
-  for( iii in 1:iiter ){
-    u        <- rnorm(n)         #u    -> n x 1      # randn() aus Paket pracma
-    wumat    <- matrix(0, n, o)  #wumat-> n x 100
-    wumat[,1]<-u             
-    wu       <-u                 #wu    -> n x 1
-    for(i in 2:o ){
-      wu         <- W %*% wu     # (n x n) * (n x 1) = (n x 1) matrix
-      wumat[ ,i] <- as.double(wu)
-    }
-    trW_i        <- trW_i + u * wumat  # n x 100    u' W^i u  (i = 1..100)
+  trW_i <- matrix( data=0, nrow=n, ncol=o )   # n x o
+  u  <- matrix(rnorm(n * iiter), nrow = n, ncol = iiter)   # (n x iiter)
+  xx <- u
+  trW_i[,1] <- apply(u * as.matrix(xx), 1, sum)    # tr(W^0) = 1
+  for(i in 2:o ){
+    xx <- W %*% xx  # (n x iter)
+    trW_i[,i] <- apply(u * as.matrix(xx), 1, sum)  # u'(W^i)u; sum across all iterations
   }
   trW_i <- trW_i / iiter
+  return(trW_i)
 }
 
 # PURPOSE: draw rho from conditional distribution p(rho | beta, z, y)
@@ -78,16 +54,26 @@ tracesWi <- function(W, o=100, iiter=50) {
 #where epe0 <- t(e0) %*% e0
 #      eped <- t(ed) %*% ed
 #      epe0d<- t(ed) %*% e0
-draw_rho <- function (detval1, detval2, detval1sq, yy, epe0, eped, epe0d, 
+#
+# detval1 umbenannt in => rho_grid = grid/vector of rhos
+# detval2 umbenannt in => lndet = vector of log-determinants
+# detval1sq = rvec^2
+# lnbprior = vector of log prior densities for rho (default: Beta(1,1))
+#
+draw_rho <- function (rho_grid, lndet, rho_gridsq, yy, epe0, eped, epe0d, 
     rho, nmk, nrho, lnbprior, u) 
 {
-    z <- epe0 - 2 * detval1 * epe0d + detval1sq * eped
+    # This is the scalar concentrated log-likelihood function value
+    # lnL(rho). See eqn(3.7), p.48
+    z <- epe0 - 2 * rho_grid * epe0d + rho_gridsq * eped
     z <- -nmk * log(z)
-    den <- detval2 + z + lnbprior
+    den <- lndet + z + lnbprior          # vector of log posterior densities for rho vector
+    # posterior density post(rho | data) \propto likelihood(data|rho,beta,z) * prior(rho)
+    # log posterior density post(rho | data) \propto loglik(data|rho,beta,z) + log prior(rho)
     n <- nrho
     adj <- max(den)
-    den <- den - adj
-    x <- exp(den)
+    den <- den - adj                     # adjustieren/normieren der log density auf maximum 0; 
+    x <- exp(den)                        # density von p(rho) --> pdf
     isum <- sum(yy * (x[2:n] - x[1:(n - 1)])/2)
     z <- abs(x/isum)
     den <- cumsum(z)
@@ -95,7 +81,7 @@ draw_rho <- function (detval1, detval2, detval1sq, yy, epe0, eped, epe0d,
     ind <- which(den <= rnd)
     idraw <- max(ind)
     if (idraw > 0 && idraw < nrho) {
-        results <- detval1[idraw]
+        results <- rho_grid[idraw]
     }
     else {
         results <- rho
@@ -125,7 +111,7 @@ sarprobit <- function(formula, W, data, subset, ...) {
 }
 
 # Estimate the spatial autoregressive probit model (SAR probit)
-# z = rho * W + X \beta + epsilon
+# z = rho * W * z + X \beta + epsilon
 # where y = 1 if z >= 0 and y = 0 if z < 0 observable
 #
 # @param y
@@ -135,9 +121,21 @@ sarprobit <- function(formula, W, data, subset, ...) {
 # @param burn.in  number of MCMC burn-in to be discarded
 # @param thinning MCMC thinning factor, defaults to 1
 # @param m number of burn.in sampling in inner Gibbs sampling
+# @param prior list of prior settings: 
+#   prior$rho ~ Beta(a1,a2); 
+#   prior$beta ~ N(c, T)
+#   prior$lflag   
+# lflag=0 --> default to 1997 Pace and Barry grid approach
+# lflag=1 --> Pace and LeSage (2004) Chebyshev approximation
+# lflag=2 --> Barry and Pace (1999) MC determinant approx
+# @param start
+# @param m
+# @param computeMarginalEffects
+# @param showProgress
 sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1, 
-  prior=list(a1=1, a2=1, c=rep(0, ncol(X)), T=diag(ncol(X))*1e12), start=list(rho=0.75, beta=rep(0, ncol(X))),
-  m=10, showProgress=FALSE){  
+  prior=list(a1=1, a2=1, c=rep(0, ncol(X)), T=diag(ncol(X))*1e12, lflag = 0), 
+  start=list(rho=0.75, beta=rep(0, ncol(X))),
+  m=10, computeMarginalEffects=TRUE, showProgress=FALSE){  
 
   #start timer
   timet <- Sys.time()
@@ -147,14 +145,14 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   n2 <- nrow( W )
   k <- ncol( X )             # number of of parameters/exogenous variables
   I_n <- sparseMatrix(i=1:n, j=1:n, x=1) # sparse identity matrix
-  
+  if (is.null(colnames(X))) colnames(X) <- paste("x",1:k,sep="")
   
   #validate inputs
   if( length(c(which(y == 0 ),which(y == 1))) != length( y ) ){
-    stop('sarp_g: not all y-values are 0 or 1')
+    stop('sarprobit: not all y-values are 0 or 1')
   }
   if( n1 != n2 && n1 != n ){
-    stop('sarp_g: wrong size of spatial weight matrix W')
+    stop('sarprobit: wrong size of spatial weight matrix W')
   }
   # check if we have a constant term in X
   ind <- match( n, apply(X,2,sum))
@@ -165,7 +163,7 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
     cflag <- 1
     p     <- k - 1
   }else{
-    stop('sarp_g: intercept term must be in first column of the X-matrix')
+    stop('sarprobit: intercept term must be in first column of the X-matrix')
   }
   
   # MCMC sampling of beta
@@ -175,6 +173,9 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   # conjugate prior beta ~ N(c, T)
   # parametrize, default to diffuse prior, for beta, e.g. T <- diag(k) * 1e12
   c <- rep(0, k)             # prior distribution of beta ~ N(c, T) : c = 0
+  if (is.numeric(prior$c) && length(prior$c) == k) {
+    c <- prior$c
+  }
   if (is.matrix(prior$T) && ncol(prior$T) == k && isSymmetric(prior$T) && det(prior$T) > 0) {
     T <- prior$T               # prior distribution of beta ~ N(c, T) : T = I_n --> diffuse prior
   } else {
@@ -184,6 +185,8 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   Tinv <- solve(T)           # T^{-1}
   S <- I_n - rho * W
   H <- t(S) %*% S            # precision matrix H for beta | rho, z, y
+  QR <- qr(S)                # class "sparseQR"
+  mu <- solve(QR, X %*% beta)
   
   # truncation points for z, depend only on y, can be precalculated
   lower <- ifelse(y > 0, 0,  -Inf)
@@ -191,22 +194,30 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   
   rmin       <- -1   # use -1,1 rho interval as default
   rmax       <-  1
-  ldetflag   <-  0   # default to 1999 Pace and Barry MC determinant approx
-  tmp <- sar_lndet(ldetflag, W, rmin, rmax)
+  
+  lflag <- 0
+  if (is.numeric(prior$lflag) && lflag %in% c(0, 1, 2)) lflag <- prior$lflag
+  #lflag=0 --> default to 1997 Pace and Barry grid approach
+  #lflag=1 --> Pace and LeSage (2004) Chebyshev approximation
+  #lflag=2 --> Barry and Pace (1999) MC determinant approx
+  tmp <- sar_lndet(lflag, W, rmin, rmax)
   detval <- tmp$detval
   
   # Some precalculated quantities for drawing rho
   # rho ~ Beta(a1, a2) prior
-  a1         <-  1.0
-  a2         <-  1.0
+  a1         <-  1
+  a2         <-  1
+  if (is.numeric(prior$a1)) a1 <- prior$a1
+  if (is.numeric(prior$a2)) a2 <- prior$a2
+  
   lnbprior <- log(beta_prior(detval[,1],a1,a2))
   u        <- runif(thinning * ndraw + burn.in)   # u ~ U(0, 1)
   nrho     <- 2001
   nmk      <- (n-k)/2
-  detval1  <- detval[,1]  # SW: avoid multiple accesses to detval[,1]
-  detval2  <- detval[,2]
-  detval1sq <- detval1 * detval1
-  yy        <- (detval1[2:nrho] + detval1[1:(nrho-1)])
+  rho_grid   <- detval[,1]  # rho grid values
+  lndet    <- detval[,2]  # log-determinant grid values
+  rho_gridsq <- rho_grid * rho_grid
+  yy       <- (rho_grid[2:nrho] + rho_grid[1:(nrho-1)])
     
   # matrix to store the beta + rho parameters for each iteration/draw
   B <- matrix(NA, ndraw, k+1)
@@ -220,12 +231,8 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   tX <- t(X)                       # X'               # k x n
   xpx  <- t(X) %*% X               # (X'X)            # k x k
   xpxI <- solve(xpx)               # (X'X)^{-1}       # k x k
-  #xxpxIxp <- X %*% xpxI %*% tX    # X(X'X)^(-1)X'    # n x n (argh!)
   xxpxI    <- X %*% xpxI           # X(X'X)^(-1)     # n x k (better, compromise)
   AA       <- solve(xpx + Tinv)    # (X'X + T^{-1})^{-1}
-  
-  # Monte Carlo estimation of tr(W^i) for i = 1..o
-  trW.i <- tracesWi(W, o=100, iiter=50)
   
   # draw from multivariate normal beta ~ N(c, T). we can precalculate 
   # betadraws ~ N(0, T) befor running the chain and later just create beta as
@@ -236,22 +243,30 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   direct       <- matrix(NA, ndraw,p)    # n x p
   indirect     <- matrix(NA, ndraw,p)    # n x p
   total        <- matrix(NA, ndraw,p)    # n x p
-  avg_total    <- rep(0,p)               # p x 1
-  avg_direct   <- rep(0,p)               # p x 1
-  avg_indirect <- rep(0,p)               # p x 1
-  
+    
+  # names of non-constant parameters
+  if(cflag == 0) {
+    namesNonConstantParams <- colnames(X)
+  } else {
+    namesNonConstantParams <- colnames(X)[-1]
+  }
+  colnames(total) <- namesNonConstantParams
+  colnames(direct)   <- namesNonConstantParams
+  colnames(indirect) <- namesNonConstantParams
+    
+  if (computeMarginalEffects) {
+    # Monte Carlo estimation of tr(W^i) for i = 1..o
+    trW.i <- tracesWi(W, o=100, iiter=50)
+    
+  }
+    
   # just to set a start value for z
   z <- rep(0, n)
   
   for (i in (1 - burn.in):(ndraw * thinning)) {
   
   # 1. sample from z | rho, beta, y using precision matrix H
-  # solving equation 
-  # (I_n - rho * W) mu = X beta 
-  # instead of inverting S = I_n - rho * W as in mu = ( In -  rho W)^{-1} X beta.
-  # QR-decomposition for sparse matrices
-  QR <- qr(S)  # class "sparseQR"
-  mu <- solve(QR, X %*% beta)
+  # mu will be updated after drawing from rho
   
   # see LeSage (2009) for choice of burn-in size, often m=5 or m=10 is used!
   # we can also use m=1 together with start.value=z, see LeSage (2009), section 10.1.5
@@ -264,9 +279,9 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   }
     
   # 2. sample from beta | rho, z, y
-  c <- AA  %*% (tX %*% S %*% z + Tinv %*% c)
+  c2 <- AA  %*% (tX %*% S %*% z + Tinv %*% c)
   T <- AA   # no update basically on T, TODO: check this
-  beta <- as.double(c + betadraws[i + burn.in, ])
+  beta <- as.double(c2 + betadraws[i + burn.in, ])
   
   # 3. sample from rho | beta, z
   #---- DRAW RHO ----
@@ -283,13 +298,21 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   epe0 <- as.double(crossprod(e0))  # slightly faster than t(e0) %*% e0
   eped <- as.double(crossprod(ed))
   epe0d<- as.double(crossprod(ed, e0))
-  rho  <- draw_rho(detval1,detval2, detval1sq, yy, epe0, eped, epe0d, rho, nmk=nmk, nrho=2001, lnbprior, u=u[i + burn.in])
+  rho  <- draw_rho(rho_grid, lndet, rho_gridsq, yy, epe0, eped, epe0d, rho, nmk=nmk, nrho=2001, lnbprior, u=u[i + burn.in])
   
   ############################################################################## 
   
-  # update S and H
+  # update S, H and QR decomposition of S and mu after each iteration; before effects
   S <- I_n - rho * W
-  H <- t(S) %*% S      # H = S'S  / SW: crossprod(S) does not seem to work!
+  H <- t(S) %*% S      # H = S'S 
+  QR <- qr(S)          # class "sparseQR"
+  
+  # solving equation 
+  # (I_n - rho * W) mu = X beta 
+  # instead of inverting S = I_n - rho * W as in mu = ( In -  rho W)^{-1} X beta.
+  # QR-decomposition for sparse matrices
+  #mu <- solve(QR, X %*% beta)
+  mu <- qr.coef(QR, X %*% beta)
 
   if (i > 0) {
     if (thinning == 1) {
@@ -304,39 +327,47 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
     B[ind,] <- c(beta, rho)
   
     # compute effects estimates (direct and indirect impacts) in each MCMC iteration
-    o <- 100
-    rhovec <- rho^(0:(o-1)) # SW: (100 x 1)   mit [1, rho^1, rho^2 ..., rho^99], see LeSage(2009), eqn (4.145), p.115
-    if( cflag == 1 ){ #has intercept
-      beff <- beta[-1]      # beff is parameter vector without constant
-    }else if(cflag == 0){
-      beff <- beta          # no constant in model
-    }
+    if (computeMarginalEffects) {
+      o <- 100
+      rhovec <- rho^(0:(o-1)) # SW: (100 x 1)   mit [1, rho^1, rho^2 ..., rho^99], see LeSage(2009), eqn (4.145), p.115
+      if( cflag == 1 ){ #has intercept
+        beff <- beta[-1]      # beff is parameter vector without constant
+      }else if(cflag == 0){
+        beff <- beta          # no constant in model
+      }
+      # beff is parameter vector without constant!
+      # See LeSage (2009), section 5.6.2., p.149/150 for spatial effects estimation in MCMC
+      #   direct: M_r(D) = n^{-1} tr(S_r(W))           # SW: efficient approaches available, see chapter 4, pp.114/115
+      #    total: M_r(T) = n^{-1} 1'_n S_r(W) 1_n      # SW: Problem: S_r(W) is dense, but can be solved via QR decomposition of S
+      # indirect: M_r(I) = M_r(T) - M_r(D)
+      # SW: See LeSage (2009), section 10.1.6, p.293 for Marginal effects in SAR probit
+      pdfz <- dnorm(as.numeric(mu))                     # standard normal pdf phi(mu)
+      dd   <- sparseMatrix(i=1:n, j=1:n, x=pdfz)       # dd is diagonal matrix with pdfz as diagonal (n x n)
   
-    # SW: beff is parameter vector without constant!
-    # SW: Do we have to compute impacts in every MCMC round or just once at the end?
-    # SW: See LeSage (2009), section 5.6.2., p.149/150 for spatial effects estimation in MCMC
-    #   direct: M_r(D) = n^{-1} tr(S_r(W))           # SW: efficient approaches available, see chapter 4, pp.114/115
-    #    total: M_r(T) = n^{-1} 1'_n S_r(W) 1_n      # SW: Problem: 1'_n S_r(W) 1_n ist dense!
-    # indirect: M_r(I) = M_r(T) - M_r(D)
-    # SW: See LeSage (2009), section 10.1.6, p.293 for Marginal effects in SAR probit
-    pdfz     <- matrix(dnorm(as.double(mu)), ncol=1)  # standard normal pdf phi(mu)
-    dir      <- as.real(t(pdfz) %*% trW.i %*% rhovec /n)
-    # direct impact : dy_i / d X_ir
-    avg_direct     <- dir * beff
+      dir      <- as.double(t(pdfz) %*% trW.i %*% rhovec /n)  # (1 x n) * (n x o) * (o x 1)
+      # direct impact : dy_i / d X_ir = phi((In -  rho W)^{-1} X beta_r) * beta_r
+      avg_direct     <- dir * beff      # (p x 1)
+         
+      # We compute the average total effects without inverting S 
+      # unlike in the LeSage Matlab Code, 
+      # but using the QR decomposition of S which we already have!
+      # average total effects = n^(-1) * 1_n' %*% (D %*% S^(-1) * b[r]) %*% 1_n
+      #                       = n^(-1) * 1_n' %*% (D %*% x) * b[r]
+      # where D=dd is the diagonal matrix containing phi(mu)
+      # and x is the solution of S %*% x = 1_n, obtained from the QR-decompositon
+      # of S. The average total effects is then the mean of (D %*% x) * b[r]
+      # average total effects, which can be furthermore done for all b[r] in one operation.
+      avg_total    <- mean(dd %*% qr.coef(QR, rep(1, n))) * beff
+      avg_indirect <- avg_total - avg_direct    # (p x 1)
       
-    #for(r in 1:p ){
-    #  tmp               <- apply( dd %*% s * beff[r], 2, sum )  # phi(mu) wird auf die Diagonalelemente draufmultipliziert...
-    #  avg_total[r]      <- mean( tmp ) 
-    #  total_obs[ ,r]    <- total_obs[,r] + tmp 
-    #}
-    avg_indirect       <- avg_total - avg_direct    # (r x 1)
-    #total[ind, ]      <- avg_total    # an (ndraw-nomit x p) matrix
-    direct[ind, ]     <- avg_direct   # an (ndraw-nomit x p) matrix
-    #indirect[ind, ]   <- avg_indirect # an (ndraw-nomit x p) matrix
-  
+      total[ind, ]      <- avg_total    # an (ndraw-nomit x p) matrix
+      direct[ind, ]     <- avg_direct   # an (ndraw-nomit x p) matrix
+      indirect[ind, ]   <- avg_indirect # an (ndraw-nomit x p) matrix
+    }
   ##############################################################################
     
   }
+    
   if (showProgress) setTxtProgressBar(pb, i + burn.in) # update progress bar
   }
     
@@ -370,7 +401,7 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   results$rmax      <- rmax 
   results$rmin      <- rmin
   results$tflag     <- 'plevel'
-  results$lflag     <- ldetflag
+  results$lflag     <- lflag
   results$cflag     <- cflag
   results$lndet     <- detval
   results$names     <- c(colnames(X), 'rho')
@@ -380,33 +411,64 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   results$total     <- total
   results$direct    <- direct
   results$indirect  <- indirect
+  results$W <- W
+  results$X <- X
 
   #results$predicted <- # prediction required. The default is on the scale of the linear predictors
   class(results)    <- "sarprobit"
   return(results)
 }
 
-# compute effects estimates (average direct and indirect impacts) for 
-# one set of SAR probit parameters 
-# (here we use the point estimates from "sarprobit" object, but we can extend this method to compute impacts for each MCMC iteration)
-# Attention: Currently the computation of total and indirect impacts requires a dense (n x n) matrix which will
-# work only for small n. If n is large this method will be VERY memory-consuming!
-#
-#   direct: M_r(D) = n^{-1} tr(S_r(W))           # efficient approaches available, see LeSage (2009), chapter 4, pp.114/115
-#    total: M_r(T) = n^{-1} 1'_n S_r(W) 1_n      # Problem: 1'_n S_r(W) 1_n is dense n x n matrix!
-# indirect: M_r(I) = M_r(T) - M_r(D)             # Problem: Computation of dense n x n matrix M_r(T) for total effects required!
-#  
-# @param beta parameter vector
-# @param beff parameter vector with constant removed (no intercept parameter)
-# @param rho  spatial dependence parameter
-# @param W spatial weight matrix
-# @param o the maximum o for which to compute tr(W^i) for i = 1..o
-# @return
-average.impacts <- function(beta, beff=beta, rho, W, X, o=100) {
+marginal.effects <- function (object, ...) 
+ UseMethod("marginal.effects")
 
-  p <- length(beff) # number of (non-constant) parameters
-  n <- nrow(W) # number of observations
-  I_n <- sparseMatrix(i=1:n, j=1:n, x=1) # sparse identity matrix
+# compute marginal effects for every MCMC iteration of the 
+# estimated SAR probit model
+marginal.effects.sarprobit <- function(object, o=100, ...) {
+  # check for class "sarprobit"
+  if (!inherits(object, "sarprobit")) 
+        stop("use only with \"sarprobit\" objects")
+        
+  nobs      <- object$nobs
+  nvar      <- object$nvar   # number of explanatory variables
+  p         <- ifelse(object$cflag == 0, nvar, nvar - 1) # number of non-constant variables
+  ndraw     <- object$ndraw
+  nomit     <- object$nomit
+  betadraws <- object$bdraw
+  rhodraws  <- object$pdraw
+  X         <- object$X # data matrix
+  W         <- object$W # spatial weight matrix
+  I_n       <- sparseMatrix(i=1:nobs, j=1:nobs, x=1) # sparse identity matrix
+  
+  # Monte Carlo estimation of tr(W^i) for i = 1..o, tr(W^i) is (n x o) matrix
+  trW.i <- tracesWi(W, o=o, iiter=50)
+  
+  # Matrices (n x k) for average direct, indirect and total effects for all k (non-constant) explanatory variables
+  # TODO: check for constant variables
+  D <- matrix(NA, ndraw, p)
+  I <- matrix(NA, ndraw, p)
+  T <- matrix(NA, ndraw, p)
+  
+  # names of non-constant parameters
+  if(object$cflag == 0) {
+    namesNonConstantParams <- colnames(X)
+  } else {
+    namesNonConstantParams <- colnames(X)[-1]
+  }
+  colnames(T) <- namesNonConstantParams
+  colnames(D) <- namesNonConstantParams
+  colnames(I) <- namesNonConstantParams
+  
+  ones <- rep(1, nobs)
+  
+  # loop all MCMC draws
+  for(i in 1:ndraw) {
+  
+  # get parameters for this MCMC iteration
+  # TODO: check for constant variables
+  beta <- betadraws[i,]
+  beff <- betadraws[i,-1]
+  rho  <- rhodraws[i]
   
   # solving equation 
   # (I_n - rho * W) mu = X beta 
@@ -414,40 +476,69 @@ average.impacts <- function(beta, beff=beta, rho, W, X, o=100) {
   # QR-decomposition for sparse matrices
   S <- I_n - rho * W
   QR <- qr(S)  # class "sparseQR"
-  mu <- solve(QR, X %*% beta)      # n x 1
+  mu <- qr.coef(QR, X %*% beta)      # n x 1
   
-  # S^{-1} = (I_n - rho * W)^{-1}
-  SI <- solve(QR)
-    
-  # Monte Carlo estimation of tr(W^i) for i = 1..o, tr(W^i) is (n x o) matrix
-  trW.i <- tracesWi(W, o=o, iiter=50)
+  # Marginal Effects for SAR Probit Model:
+  # LeSage (2009), equation (10.10), p.294:
+  # d E[y | x_r] / dx_r' = phi(S^{-1} I_n mean(x_r) beta_r) * S^{-1} I_n beta_r
+  # This gives a (n x n) matrix
+  # average direct effects = n^{-1} tr(S_r(W))
   
   # compute effects estimates (direct and indirect impacts) in each MCMC iteration
-  rhovec <- rho^(0:(o-1)) # vector (o x 1) with [1, rho^1, rho^2 ..., rho^(o-1)], see LeSage(2009), eqn (4.145), p.115
+  rhovec <- rho^(0:(o-1)) # vector (o x 1) with [1, rho^1, rho^2 ..., rho^(o-1)], 
+  # see LeSage(2009), eqn (4.145), p.115
     
   # See LeSage (2009), section 5.6.2., p.149/150 for spatial effects estimation in MCMC
   #   direct: M_r(D) = n^{-1} tr(S_r(W))           # efficient approaches available, see LeSage (2009), chapter 4, pp.114/115
-  #    total: M_r(T) = n^{-1} 1'_n S_r(W) 1_n      # Problem: 1'_n S_r(W) 1_n is dense n x n matrix!
-  # indirect: M_r(I) = M_r(T) - M_r(D)             # Problem: Computation of dense n x n matrix M_r(T) for total effects required!
+  #    total: M_r(T) = n^{-1} 1'_n S_r(W) 1_n      # S_r(W) is dense n x n matrix!
+  # indirect: M_r(I) = M_r(T) - M_r(D)             # Computation of dense n x n matrix M_r(T) for total effects required!
   # See LeSage (2009), section 10.1.6, p.293 for Marginal effects in SAR probit
-  pdfz <- matrix(dnorm(as.double(mu)), ncol=1)  # standard normal pdf phi(mu) = phi( (In -  rho W)^{-1} X beta )  # (n x 1)
-  dd   <- sparseMatrix(i=1:n, j=1:n, x=pdfz)    # dd is diagonal matrix with pdfz as diagonal (n x n)
+  pdfz <- dnorm(as.numeric(mu))                     # standard normal pdf phi(mu) = phi( (In -  rho W)^{-1} X beta )  # (n x 1)
+  dd   <- sparseMatrix(i=1:nobs, j=1:nobs, x=pdfz)  # dd is diagonal matrix with pdfz as diagonal (n x n)
   
-  dir      <- as.real(t(pdfz) %*% trW.i %*% rhovec /n)  # (1 x n) * (n x o) * (o x 1)
-  # direct impact : dy_i / d X_ir = phi((In -  rho W)^{-1} X beta_r) * beta_r ???
+  dir      <- as.double(t(pdfz) %*% trW.i %*% rhovec /nobs)  # (1 x n) * (n x o) * (o x 1) = (1 x 1)
+  # direct impact : dy_i / d X_ir = phi((In -  rho W)^{-1} X beta_r) * (In -  rho W)^{-1} * beta_r
   avg_direct     <- dir * beff      # (p x 1)
-      
-  for(r in 1:p ){
-    tmp               <- apply( dd %*% SI * beff[r], 2, sum )  # phi(mu) wird auf die Diagonalelemente draufmultipliziert...
-    avg_total[r]      <- mean( tmp ) 
-  }
+    
+  # We compute the average total effects without inverting S 
+  # as in the LeSage Matlab Code, 
+  # but using the QR decomposition of S which we already have!
+  # average total effects = n^(-1) * 1_n' %*% (D %*% S^(-1) * b[r]) %*% 1_n
+  #                       = n^(-1) * 1_n' %*% (D %*% x) * b[r]
+  # where D=dd is the diagonal matrix containing phi(mu)
+  # and x is the solution of S %*% x = 1_n, obtained from the QR-decompositon
+  # of S. The average total effects is then the mean of (D %*% x) * b[r]
+  # average total effects, which can be furthermore done for all b[r] in one operation.
+  avg_total    <- mean(dd %*% qr.coef(QR, ones)) * beff
   avg_indirect       <- avg_total - avg_direct    # (p x 1)
-   
-  return(list(avg_total=avg_total, avg_direct=avg_direct, avg_indirect=avg_indirect))
+  
+  D[i,] <- avg_direct
+  I[i,] <- avg_indirect
+  T[i,] <- avg_total
+  }
+  
+  summaryMarginalEffects <- function(x) {
+    r <- cbind(
+    apply(x, 2, mean),
+    apply(x, 2, sd),
+    apply(x, 2, mean)/apply(x, 2, sd))
+    colnames(r) <- c("marginal.effect", "standard.error","z.ratio")
+    return(r)
+  }
+  summary_direct <- summaryMarginalEffects(D)
+  summary_indirect <- summaryMarginalEffects(I)
+  summary_total <- summaryMarginalEffects(T)    
+  
+  return(list(direct=D, indirect=I, total=T,
+   summary_direct=summary_direct,
+   summary_indirect=summary_indirect,
+   summary_total=summary_total)
+  ) 
 }
 
 # summary method for class "sarprobit"
-summary.sarprobit <- function(object, var_names=NULL, file=NULL, digits = max(3, getOption("digits")-3), ...){
+summary.sarprobit <- function(object, var_names=NULL, file=NULL, 
+  digits = max(3, getOption("digits")-3), ...){
   # check for class "sarprobit"
   if (!inherits(object, "sarprobit")) 
         stop("use only with \"sarprobit\" objects")
@@ -483,27 +574,71 @@ summary.sarprobit <- function(object, var_names=NULL, file=NULL, digits = max(3,
   write(sprintf("N steps for TMVN= %6d"  , object$nsteps), file, append=T)
   write(sprintf("N draws         = %6d, N omit (burn-in)= %6d", ndraw, nomit), file, append=T)
   write(sprintf("N observations  = %6d, K covariates    = %6d", nobs, nvar)  , file, append=T)
-  write(sprintf("# fo 0 Y values = %6d, # of 1 Y values = %6d", object$zip, nobs - object$zip) , file, append=T)
+  write(sprintf("# of 0 Y values = %6d, # of 1 Y values = %6d", object$zip, nobs - object$zip) , file, append=T)
   write(sprintf("Min rho         = % 6.3f, Max rho         = % 6.3f", object$rmin, object$rmax), file, append=T)
   write(sprintf("--------------------------------------------------"), file, append=T)
   write(sprintf(""), file, append=T)
   #ESTIMATION RESULTS
   coefficients <- cbind(bout_mean, bout_sd, bout_sig, bout_t, bout_tPval)
   dimnames(coefficients) <- list(bout_names, 
-        c("Estimate", "Std. Dev", "Bayes p-level", "t-value", "Pr(>|z|)"))
+        c("Estimate", "Std. Dev", "p-level", "t-value", "Pr(>|z|)"))
   printCoefmat(coefficients, digits = digits,
-    signif.stars = FALSE)
-  if (getOption("show.signif.stars")) {               
+    signif.stars = getOption("show.signif.stars"))      
+  #if (getOption("show.signif.stars")) { 
+    # The problem: The significance code legend printed by printCoefMat()
+    # is too wide for two-column layout and it will not wrap lines...
     # The solution: using cat() instead of print() and use line breaks
     # cat(paste(strwrap(x, width = 70), collapse = "\\\\\n"), "\n")
     # http://r.789695.n4.nabble.com/Sweave-line-breaks-td2307755.html
-    Signif <- symnum(1e-6, corr = FALSE, na = FALSE,
-                  cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1),
-                  symbols = c("***", "**", "*", ".", " "))
-    x <- paste("Signif. codes: ", attr(Signif, "legend"), "\n", sep="")
-    cat(paste(strwrap(x, width = getOption("width")), collapse = "\\\n"), "\n")
-  }
-  return(coefficients)
+    #  Signif <- symnum(1e-6, corr = FALSE, na = FALSE,
+    #              cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1),
+    #              symbols = c("***", "**", "*", ".", " "))
+    #x <- paste("Signif. codes: ", attr(Signif, "legend"), "\n", sep="")
+    #cat(paste(strwrap(x, width = getOption("width")), collapse = "\\\n"), "\n")
+  #}
+  return(invisible(coefficients))
+}
+
+# prints the marginal effects/impacts of the SAR probit fit
+impacts.sarprobit <- function(obj, file=NULL, 
+  digits = max(3, getOption("digits")-3), ...) {
+  if (!inherits(obj, "sarprobit")) 
+    stop("use only with \"sarprobit\" objects")
+    
+  if(is.null(file)){file <- ""}#output to the console
+  write(sprintf("--------Marginal Effects--------"), file, append=T)  
+  write(sprintf(""), file, append=T)      
+  
+  #(a) Direct effects
+  write(sprintf("(a) Direct effects"), file, append=T)
+  direct <- cbind(
+   lower_005=apply(obj$direct, 2, quantile, prob=0.05),
+   posterior_mean=colMeans(obj$direct),
+   upper_095=apply(obj$direct, 2, quantile, prob=0.95)
+  )
+  printCoefmat(direct, digits = digits)
+  
+  # (b) Indirect effects
+  write(sprintf(""), file, append=T)      
+  write(sprintf("(b) Indirect effects"), file, append=T)
+  indirect <- cbind(
+   lower_005=apply(obj$indirect, 2, quantile, prob=0.05),
+   posterior_mean=colMeans(obj$indirect),
+   upper_095=apply(obj$indirect, 2, quantile, prob=0.95)
+  )
+  printCoefmat(indirect, digits = digits)
+  
+  # (c) Total effects
+  write(sprintf(""), file, append=T)      
+  write(sprintf("(c) Total effects"), file, append=T)
+  total <- cbind(
+   lower_005=apply(obj$total, 2, quantile, prob=0.05),
+   posterior_mean=colMeans(obj$total),
+   upper_095=apply(obj$total, 2, quantile, prob=0.95)
+  )
+  printCoefmat(total, digits = digits)
+  
+  return(invisible(list(direct=direct, indirect=indirect, total=total)))
 }
 
 # c.sarprobit works in the same way as boot:::c.boot().
@@ -593,55 +728,11 @@ fitted.sarprobit <- function(object, ...) {
   object$fitted.value
 }
 
-predict.glm <- function (object, newdata = NULL, 
-    type = c("link", "response", "terms"), 
-    se.fit = FALSE, dispersion = NULL, terms = NULL, 
-    na.action = na.pass, ...) 
-{
-    type <- match.arg(type)
-    na.act <- object$na.action
-    object$na.action <- NULL
-    if (!se.fit) {
-        if (missing(newdata)) {
-            pred <- switch(type, 
-              link = object$linear.predictors, 
-              response = object$fitted.values, 
-              terms = predict.lm(object, se.fit = se.fit, scale = 1, type = "terms", terms = terms)
-            )
-            if (!is.null(na.act)) 
-                pred <- napredict(na.act, pred)
-        }
-        else {
-            pred <- predict.lm(object, newdata, se.fit, scale = 1, 
-                type = ifelse(type == "link", "response", type), 
-                terms = terms, na.action = na.action)
-            switch(type, response = {
-                pred <- family(object)$linkinv(pred)
-            }, link = , terms = )
-        }
-    }
-    else {
-        if (inherits(object, "survreg")) 
-            dispersion <- 1
-        if (is.null(dispersion) || dispersion == 0) 
-            dispersion <- summary(object, dispersion = dispersion)$dispersion
-        residual.scale <- as.vector(sqrt(dispersion))
-        pred <- predict.lm(object, newdata, se.fit, scale = residual.scale, 
-            type = ifelse(type == "link", "response", type), 
-            terms = terms, na.action = na.action)
-        fit <- pred$fit
-        se.fit <- pred$se.fit
-        switch(type, response = {
-            se.fit <- se.fit * abs(family(object)$mu.eta(fit))
-            fit <- family(object)$linkinv(fit)
-        }, link = , terms = )
-        if (missing(newdata) && !is.null(na.act)) {
-            fit <- napredict(na.act, fit)
-            se.fit <- napredict(na.act, se.fit)
-        }
-        pred <- list(fit = fit, se.fit = se.fit, residual.scale = residual.scale)
-    }
-    pred
+# Extract Log-Likelihood; see logLik.glm() for comparison
+# Method returns object of class "logLik" with at least one attribute "df"
+# giving the number of (estimated) parameters in the model.
+logLik.sarprobit <- function(object, ...) {
+
 }
 
 
