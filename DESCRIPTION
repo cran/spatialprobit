@@ -1,6 +1,6 @@
 Package: spatialprobit
-Version: 0.9-6
-Date: 2013-02-15
+Version: 0.9-7
+Date: 2013-02-16
 Title: Spatial Probit Models
 Author: Stefan Wilhelm <wilhelm@financial.com> and Miguel Godinho de
         Matos <miguelgodinhomatos@cmu.edu>
@@ -11,7 +11,7 @@ Suggests: RUnit
 Description: Bayesian Estimation of Spatial Probit and Tobit Models
 License: GPL (>= 2)
 URL: http://www.r-project.org
-Packaged: 2013-02-14 22:32:51 UTC; stefan
+Packaged: 2013-02-16 15:13:40 UTC; stefan_admin
 NeedsCompilation: no
 Repository: CRAN
-Date/Publication: 2013-02-15 06:03:59
+Date/Publication: 2013-02-18 07:38:24
