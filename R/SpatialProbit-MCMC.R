@@ -110,6 +110,17 @@ sarprobit <- function(formula, W, data, subset, ...) {
   sar_probit_mcmc(y, X, W, ...)    
 }
 
+# faster update of matrix S = (I - rho * W) for new values of rho
+#
+# @param S template matrix of (I - rho * W)
+# @param ind indizes to replaced
+# @param W spatial weights matrix W
+# @return (I - rho * W)
+update_I_rW <- function(S, ind, rho, W) {
+  S@x[ind] <- (-rho*W)@x
+  return(S)
+}
+
 # Estimate the spatial autoregressive probit model (SAR probit)
 # z = rho * W * z + X \beta + epsilon
 # where y = 1 if z >= 0 and y = 0 if z < 0 observable
@@ -183,7 +194,18 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   }
   
   Tinv <- solve(T)           # T^{-1}
-  S <- I_n - rho * W
+  
+  # prepare computation of (I_n - rho * W)
+  if (class(W) == "dgCMatrix") {
+   I <- sparseMatrix(i=1:n,j=1:n,x=Inf)
+   S <- (I - rho * W)
+   ind  <- which(is.infinite(S@x))  # Stellen an denen wir 1 einsetzen müssen (I_n)
+   ind2 <- which(!is.infinite(S@x))  # Stellen an denen wir -rho*W einsetzen müssen
+   S@x[ind] <- 1
+  } else {
+   S <- I_n - rho * W
+  }
+  
   H <- t(S) %*% S            # precision matrix H for beta | rho, z, y
   QR <- qr(S)                # class "sparseQR"
   mu <- solve(QR, X %*% beta)
@@ -231,8 +253,8 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   tX <- t(X)                       # X'               # k x n
   xpx  <- t(X) %*% X               # (X'X)            # k x k
   xpxI <- solve(xpx)               # (X'X)^{-1}       # k x k
-  xxpxI    <- X %*% xpxI           # X(X'X)^(-1)     # n x k (better, compromise)
-  AA       <- solve(xpx + Tinv)    # (X'X + T^{-1})^{-1}
+  xxpxI <- X %*% xpxI              # X(X'X)^(-1)     # n x k (better, compromise)
+  AA    <- solve(xpx + Tinv)       # (X'X + T^{-1})^{-1}
   
   # draw from multivariate normal beta ~ N(c, T). we can precalculate 
   # betadraws ~ N(0, T) befor running the chain and later just create beta as
@@ -243,6 +265,7 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   direct       <- matrix(NA, ndraw,p)    # n x p
   indirect     <- matrix(NA, ndraw,p)    # n x p
   total        <- matrix(NA, ndraw,p)    # n x p
+  zmean        <- rep(0, n)
     
   # names of non-constant parameters
   if(cflag == 0) {
@@ -262,6 +285,7 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
     
   # just to set a start value for z
   z <- rep(0, n)
+  ones <- rep(1, n)
   
   for (i in (1 - burn.in):(ndraw * thinning)) {
   
@@ -279,7 +303,8 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   }
     
   # 2. sample from beta | rho, z, y
-  c2 <- AA  %*% (tX %*% S %*% z + Tinv %*% c)
+  Sz <- as.double(S %*% z)               # (n x 1); dense
+  c2 <- AA  %*% (tX %*% Sz + Tinv %*% c) # (n x 1); dense
   T <- AA   # no update basically on T, TODO: check this
   beta <- as.double(c2 + betadraws[i + burn.in, ])
   
@@ -303,7 +328,7 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   ############################################################################## 
   
   # update S, H and QR decomposition of S and mu after each iteration; before effects
-  S <- I_n - rho * W
+  S <- update_I_rW(S, ind=ind2, rho, W)  # update (I - rho * W)
   H <- t(S) %*% S      # H = S'S 
   QR <- qr(S)          # class "sparseQR"
   
@@ -311,8 +336,7 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   # (I_n - rho * W) mu = X beta 
   # instead of inverting S = I_n - rho * W as in mu = ( In -  rho W)^{-1} X beta.
   # QR-decomposition for sparse matrices
-  #mu <- solve(QR, X %*% beta)
-  mu <- qr.coef(QR, X %*% beta)
+  mu <- solve(QR, X %*% beta)
 
   if (i > 0) {
     if (thinning == 1) {
@@ -325,6 +349,7 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
     }
     
     B[ind,] <- c(beta, rho)
+    zmean   <- zmean + z
   
     # compute effects estimates (direct and indirect impacts) in each MCMC iteration
     if (computeMarginalEffects) {
@@ -357,7 +382,7 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
       # and x is the solution of S %*% x = 1_n, obtained from the QR-decompositon
       # of S. The average total effects is then the mean of (D %*% x) * b[r]
       # average total effects, which can be furthermore done for all b[r] in one operation.
-      avg_total    <- mean(dd %*% qr.coef(QR, rep(1, n))) * beff
+      avg_total    <- mean(dd * qr.coef(QR, ones)) * beff
       avg_indirect <- avg_total - avg_direct    # (p x 1)
       
       total[ind, ]      <- avg_total    # an (ndraw-nomit x p) matrix
@@ -413,6 +438,7 @@ sar_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   results$indirect  <- indirect
   results$W <- W
   results$X <- X
+  #results$mlike     <- mlike    # log-likelihood based on posterior means
 
   #results$predicted <- # prediction required. The default is on the scale of the linear predictors
   class(results)    <- "sarprobit"
@@ -731,8 +757,27 @@ fitted.sarprobit <- function(object, ...) {
 # Extract Log-Likelihood; see logLik.glm() for comparison
 # Method returns object of class "logLik" with at least one attribute "df"
 # giving the number of (estimated) parameters in the model.
+# see Marsh (2000) equation (2.8), p.27 
 logLik.sarprobit <- function(object, ...) {
-
+  X <- object$X
+  y <- object$y
+  n <- nrow(X)
+  k <- ncol(X)
+  W <- object$W
+  beta <- object$beta
+  rho <- object$rho
+  I_n <- sparseMatrix(i=1:n, j=1:n, x=1)
+  S <- I_n - rho * W
+  D <- diag(1/sqrt(diag(S %*% t(S))))  # D = diag(E[u u'])^{1/2}  (n x n)
+  Xs <- D %*% solve(qr(S), X)          # X^{*} = D * (I_n - rho * W)^{-1} * X
+  #Xs <- D %*% solve(S) %*% X
+  F <- pnorm(as.double(Xs %*% beta))    # F(X^{*} beta)  # (n x 1)
+  lnL <- sum(log(F[y == 1])) + sum(log((1 - F[y == 0]))) # see Marsh (2000), equation (2.8)
+  #lnL <- sum(ifelse(y == 1, log(pnorm(xb)), log(1 - pnorm(xb))))
+  out <- lnL
+  class(out) <- "logLik"
+  attr(out,"df") <- k+1                 # k parameters in beta, rho
+ return(out)
 }
 
 
