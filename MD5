@@ -1,8 +1,8 @@
-266e423aea271758e5ee522a70189519 *DESCRIPTION
+fa6a17847095f46eb5693414228587e0 *DESCRIPTION
 eedb4ce3092892bfc22ca49e2b5d14ab *NAMESPACE
-415ffac1df45160075e77d35391ba38b *NEWS
+c56aa35ea93a2caa649bed3ed1d4cfde *NEWS
 32cc1158580c596cf7a5f453b01e5b18 *R/LeSagePaceExperiment.R
-f8203eb5605667e8cf1001129367a05e *R/SpatialProbit-MCMC.R
+12fd61d56f3928a600c29c7a37645cca *R/SpatialProbit-MCMC.R
 1f0b9fcb80302a338833dec3e9c2e480 *R/kNearestNeighbors.R
 f9c9a78ea40a954ec62be15cf4f3496a *R/matrix_operations.r
 936c3b89c45706f4f050da603c400f1a *R/metropolis-hastings-rho.R
@@ -10,7 +10,7 @@ e9903cd6902488f26ec152ef54e588f9 *R/rtnorm.R
 e141a8ad19e2df18a0219f4364266dd0 *R/sar_base.r
 0feb92bdd08adc823a15d845f0b3bdc0 *R/sartobit.R
 e520da55a42e795191abe34dbe470eb5 *R/sem.R
-20b0d59a24c0ef7a6721d3e26a5bb59e *R/semprobit.R
+e6735d0cdcb66596940df2eaf9c75add *R/semprobit.R
 1967774f3fd51fe0a792f2a941467846 *R/stats_conf_intervals.r
 ea4e1e6de75dc82f539d506412c8fdd9 *R/stats_distributions.r
 0606da8d6e3a7396bf11bc1e3b2b7a9f *R/utility_functions.r
@@ -19,6 +19,8 @@ d623ad7f95bce2032d76f5c867cc7586 *data/Katrina.RData
 be361f8ec1d15d2c2e47f1a81086d2f0 *inst/tests/test-In-rW.R
 bba51b55152911e0935f592820c1c1b3 *inst/tests/test-impacts.R
 b512777bfcb460da1a2dc77477fb55a8 *inst/tests/test-qr-solve.R
+8b2f884462ba9244c7e76122699aed31 *inst/tests/test-sarprobit.R
+c054e624372731c8c0245250c519c202 *inst/tests/test-semprobit.R
 b7677025e1efd1db08cc6cd90be6fa1c *man/CKM.Rd
 d57de0ad0cb66bdbd75cbcf9ee162a9c *man/Katrina.Rd
 89404d51aa672b41223c46ceb1ca1d76 *man/LeSagePaceExperiment.Rd
@@ -30,7 +32,7 @@ f70a9ff43afc609e46c4276f3fbc5800 *man/marginal.effects.sarprobit.Rd
 2eaa1ff0f73290d5eeb823a3c3ca18b1 *man/plot.sarprobit.Rd
 6f7d3ef85154f178658247b383c900c7 *man/sar_eigs.Rd
 21ec7c40e9b2e6e7350dd8a9d8bef94c *man/sar_lndet.Rd
-485d4c455a9b36cae7609858a1b7773d *man/sarprobit.Rd
+a615c39ef5492ea0605670e2f77a276a *man/sarprobit.Rd
 0a7f8be69ce3d5ef93ac929d064c5ae1 *man/sartobit.Rd
 176ca6d502c2fd99770e418744482eaa *man/semprobit.Rd
 4e8a1b625b4b85024e355e7e60019352 *man/summary.sarprobit.Rd
