@@ -1,4 +1,5 @@
 import(stats)
+import(mvtnorm)
 import(tmvtnorm)
 import(Matrix)
 import(spdep)
@@ -21,6 +22,11 @@ export(marginal.effects)
 export(marginal.effects.sarprobit)
 export(impacts.sarprobit)
 export(logLik.sarprobit)
+
+# SAR ordered probit 
+export(sarorderedprobit)
+export(sar_ordered_probit_mcmc)
+export(summary.sarprobit)
 
 # SAR Tobit
 export(sartobit)
