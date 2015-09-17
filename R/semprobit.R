@@ -52,20 +52,6 @@
 #   (cc) Erwartungswert von von Normalverteilung p(beta | z, rho) ändert sich
 # - No spatial spillover, marginal effects in SEM Probit
 
-if (FALSE) {
- library(tmvtnorm)
- library(Matrix)    # sparseMatrix
-
- setwd("G:/R/spatialprobit/R")
- source("sar_base.r")
- source("matrix_operations.r")
- source("stats_distributions.r")
- source("utility_functions.r")
- setwd("G:/R/spatialprobit/Misc")
- source("Metropolis-Hastings-rho.R")
-  
-}
-
 # Bayesian estimation of the probit model with spatial errors (SEM probit)
 #
 # @param formula 
@@ -113,7 +99,7 @@ sem_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   prior=list(a1=1, a2=1, c=rep(0, ncol(X)), T=diag(ncol(X))*1e12,
   nu=0, d0=0, lflag = 0), 
   start=list(rho=0.75, beta=rep(0, ncol(X)), sige=1),
-  m=10, showProgress=FALSE){  
+  m=10, showProgress=FALSE, univariateConditionals=TRUE){  
 
   #start timer
   timet <- Sys.time()
@@ -243,7 +229,7 @@ sem_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   b0 <- AI %*% b                          # k x 1 vector
   beta <- as.double(rmvnorm(n=1, mean=b0, sigma=sige*AI))
   
-  # update sige
+  # update sige given rho, beta, z
   nu1 <- n + 2*nu
   e <- as.double(S %*% (z - X %*% beta))  # n x 1 vector
   d1 <- 2*d0 + crossprod(e)
@@ -265,37 +251,48 @@ sem_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   # E[z^(t) | z_{-i}^(t-1) ]  = mu^(t-1)  - diag(H)^{-1} H [ z^(t-1) - mu^(t-1) ] + [ z^(t-1) - mu^(t-1) ]
   # 
   # H = 1/sige * (I_n - rho * W)'(I_n - rho * W) = 1/sige * (I_n - 2*rho*W + rho^2*W^2)
-  # diag(H) = H_{ii} = diag(I_n - 2*rho*W + rho^2*W^2) = diag(I_n) + rho^2*diag(W^2)
+  # diag(H) = H_{ii} = 1/sige * diag(I_n - 2*rho*W + rho^2*W^2) 
+  #                  = 1/sige * (diag(I_n) + rho^2*diag(W^2))
   # because diag(W) = 0!
   #
-  # 
-  mu <- X %*% beta;
-  zmu <- z - mu;                  
-  dsig <- ones - rho * rho * W2diag  # SW: Sollte es nicht ones + rho * rho * W2diag sein?
-  zvar <- ones/dsig;            # conditional variances for each z_i | z = H_{ii}^{-1} = 1/diag(H) (n x 1)
+  #
+  if (univariateConditionals) {
+    # conditional variance  z_i | z_{-i}
+    dsig <- 1/sige * (ones - rho * rho * W2diag)  # SW: Sollte es nicht ones + rho * rho * W2diag sein?
+    zvar <- ones/dsig;            # conditional variances for each z_i | z = H_{ii}^{-1} = 1/diag(H) (n x 1)
                                   # TODO: check if sige is missing in zvar
-  A  <- (1/sige)* S %*% zmu     # a vector (n x 1)
-  B2  <- t(S) %*% A             # B2 <- (1/sige) * t(S) %*% S %*% zmu
-  Cz <- zmu - zvar*B2
-  zm <- mu + Cz;                # mu + (z-mu) - zvar * t(S)[ (1/sige) * S * (z - mu) ]
-  
-  z[ind0] <- rtnorm(mu=zm[ind0], sd=sqrt(zvar[ind0]), a=-Inf, b=0)
-  z[ind1] <- rtnorm(mu=zm[ind1], sd=sqrt(zvar[ind1]), a=0, b=Inf)
-  z[is.infinite(z)] <- 0
-  
+                                  # TODO: Was passiert im Fall dsig < 0 --> zvar < 0 (negative variance) !!!
+    #browser()
+    # all.equal(zvar, 1 / diag(H))    # TRUE zvar = diag(H)^{-1} 
+    
+    # conditional mean  z_i | z_{-i}
+    mu <- X %*% beta
+    zmu <- z - mu                  
+    A  <- (1/sige)* S %*% zmu     # a vector (n x 1)
+    B2  <- t(S) %*% A             # B2 <- (1/sige) * t(S) %*% S %*% zmu
+    Cz <- zmu - zvar*B2           # Cz = (z - mu) - diag(H)^{-1} * H * (z - mu)
+    zm <- mu + Cz;                # mu + (z-mu) - zvar * t(S)[ (1/sige) * S * (z - mu) ]  =  mu + (z-mu)
+    # zm2 <- mu - 1 / diag(H) * H %*% zmu  + zmu
+    # all.equal(zm, zm2)          # TRUE
+    
+    z[zvar < 0] <- 0
+    z[ind0] <- rtnorm(mu=zm[ind0], sd=sqrt(zvar[ind0]), a=-Inf, b=0)
+    z[ind1] <- rtnorm(mu=zm[ind1], sd=sqrt(zvar[ind1]), a=0, b=Inf)
+    z[is.infinite(z) | zvar < 0] <- 0    # some zvar become negative which causes sqrt(zvar) to be NA.
+  }
   # TODO: check why sampling with rtmvnorm.sparseMatrix does not work. 
   # Chain is exploding in this case. Conditional variance is different from LeSage code.
   # multivariate truncated normal given beta, rho, sige
-  if (FALSE) {
-  H <- (1/sige)*t(S)%*%S
-  m <- 1
-  if (m==1) {
-   z2 <- as.double(rtmvnorm.sparseMatrix(n=1, mean=mu, H=H, 
-        lower=lower, upper=upper, burn.in=m, start.value=z))
-  } else {
-   z2 <- as.double(rtmvnorm.sparseMatrix(n=1, mean=mu, H=H, 
-     lower=lower, upper=upper, burn.in=m))
-  }
+  if (!univariateConditionals) {
+    mu <- X %*% beta
+    H <- (1/sige)*t(S)%*%S
+    if (m==1) {
+     z <- as.double(rtmvnorm.sparseMatrix(n=1, mean=mu, H=H, 
+          lower=lower, upper=upper, burn.in=m, start.value=z))
+    } else {
+     z <- as.double(rtmvnorm.sparseMatrix(n=1, mean=mu, H=H, 
+       lower=lower, upper=upper, burn.in=m))
+    }
   }
       
   # 3. sample from rho | beta, z, sige using Metropolis-Hastings with burn.in=20
@@ -361,13 +358,13 @@ sem_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   if (showProgress)  close(pb) #close progress bar
     
   # fitted values for estimates (based on z rather than binary y like in fitted(glm.fit))
-  # (on reponse scale y vs. linear predictor scale z...)
+  # (on response scale y vs. linear predictor scale z...)
   beta  <- colMeans(B)[1:k]
   sige  <- colMeans(B)[k+1]
   rho   <- colMeans(B)[k+2]
   S     <- (I_n - rho * W)
   fitted.values   <- X %*% beta                     # E[z | beta] = (X * beta)
-  fitted.response <- as.numeric(fitted.values >= 0) 
+  fitted.response <- as.numeric(fitted.values >= 0) # y = (z >= 0)
   # TODO: linear.predictors  vs. fitted.values
  
   # result
@@ -381,7 +378,8 @@ sem_probit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   results$sige  <- sige
   results$rho   <- colMeans(B)[k+2]
   results$coefficients <- colMeans(B)
-  results$fitted.values <- fitted.values
+  results$fitted.values <- fitted.values    # fitted values
+  results$fitted.response <- fitted.response  # fitted values on reponse scale (binary y variable)
   results$ndraw <- ndraw
   results$nomit <- burn.in
   results$a1        <- a1
@@ -587,5 +585,10 @@ logLik.semprobit <- function(object, ...) {
   class(out) <- "logLik"
   attr(out,"df") <- k+2                     # k parameters in beta, rho, sige
  return(out)
+}
+
+# return fitted values of SEM probit (on reponse scale vs. linear predictor scale)
+fitted.semprobit <- function(object, ...) {
+  object$fitted.value
 }
 

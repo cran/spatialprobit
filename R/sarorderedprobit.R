@@ -276,7 +276,7 @@ for (i in (1 - burn.in):(ndraw * thinning)) {
 if (showProgress)  close(pb) #close progress bar
   
 # fitted values for estimates (based on z rather than binary y like in fitted(glm.fit))
-# (on reponse scale y vs. linear predictor scale z...)
+# (on response scale y vs. linear predictor scale z...)
 beta  <- colMeans(B)[1:k]
 rho   <- colMeans(B)[k+1]
 #browser()
@@ -304,7 +304,7 @@ results$beta  <- colMeans(B)[1:k]
 results$rho   <- colMeans(B)[k+1]
 results$phi   <- colMeans(B)[(k+2):((k+2) + (J-2))]
 results$coefficients <- colMeans(B)
-results$fitted.values <- fitted.values      # fitted latent values
+results$fitted.values <- fitted.values      # fitted latent values on linear predictor scale
 results$fitted.response <- fitted.response  # fitted values on response scale (ordered y variable)
 results$ndraw <- ndraw
 results$nomit <- burn.in
@@ -333,7 +333,7 @@ class(results)    <- c("sarorderedprobit", "sarprobit")
 return(results)
 }
 
-# summary method for class "sarprobit"
+# summary method for class "sarorderedprobit"
 summary.sarorderedprobit <- function(object, var_names=NULL, file=NULL, 
   digits = max(3, getOption("digits")-3), ...){
   # check for class "sarorderedprobit"
@@ -383,6 +383,11 @@ summary.sarorderedprobit <- function(object, var_names=NULL, file=NULL,
   printCoefmat(coefficients, digits = digits,
     signif.stars = getOption("show.signif.stars"))      
   return(invisible(coefficients))
+}
+
+# return fitted values of SAR ordered probit (on response scale vs. linear predictor scale)
+fitted.sarorderedprobit <- function(object, ...) {
+  object$fitted.value
 }
 
 

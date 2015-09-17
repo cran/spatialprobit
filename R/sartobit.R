@@ -163,6 +163,8 @@ sar_tobit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
 
   # matrix to store the beta + sige + rho parameters for each iteration/draw
   B <- matrix(NA, ndraw, k+2)
+  
+  ones <- rep(1, n)  # vector of ones
 
   # progress bar
   if (showProgress) {
@@ -189,6 +191,11 @@ sar_tobit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   colnames(total) <- namesNonConstantParams
   colnames(direct)   <- namesNonConstantParams
   colnames(indirect) <- namesNonConstantParams
+  
+  if (computeMarginalEffects) {
+    # simulate Monte Carlo estimation of tr(W^i) for i = 1..o before MCMC iterations
+    trW.i <- tracesWi(W, o=100, iiter=50)
+  }
   
   yin <- y    # input values for y
   ind1 <- which(yin == 0)    # index vector for censored observations y=0
@@ -304,6 +311,34 @@ sar_tobit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
         next
       }
       B[ind,] <- c(beta, sige, rho)
+      
+      # compute effects estimates (direct and indirect impacts) in each MCMC iteration
+      if (computeMarginalEffects) {
+        o <- 100
+        rhovec <- rho^(0:(o-1)) # SW: (100 x 1)   mit [1, rho^1, rho^2 ..., rho^99], see LeSage(2009), eqn (4.145), p.115
+        if( cflag == 1 ){ #has intercept
+          beff <- beta[-1]      # beff is parameter vector without constant
+        }else if(cflag == 0){
+          beff <- beta          # no constant in model
+        }
+        # beff is parameter vector without constant!
+        # See LeSage (2009), section 5.6.2., p.149/150 for spatial effects estimation in MCMC
+        #   direct: M_r(D) = n^{-1} tr(S_r(W))           # SW: efficient approaches available, see chapter 4, pp.114/115
+        #    total: M_r(T) = n^{-1} 1'_n S_r(W) 1_n      # SW: Problem: S_r(W) is dense, but can be solved via QR decomposition of S
+        # indirect: M_r(I) = M_r(T) - M_r(D)
+        
+        # Marginal effects in SAR Tobit
+        probz <- pnorm(as.numeric(mu) / sige)     # Phi(Xß/sigma) = Prob(z <= Xß/sigma)
+        dd <- sparseMatrix(i = 1:n, j = 1:n, x = probz)
+        dir <- as.double(t(probz) %*% trW.i %*% rhovec/n)
+        avg_direct <- dir * beff
+        avg_total <- mean(dd %*% qr.coef(QR, ones)) * beff
+        avg_indirect <- avg_total - avg_direct
+
+        total[ind, ]      <- avg_total    # an (ndraw-nomit x p) matrix
+        direct[ind, ]     <- avg_direct   # an (ndraw-nomit x p) matrix
+        indirect[ind, ]   <- avg_indirect # an (ndraw-nomit x p) matrix
+      }
     }
 
     if (showProgress) setTxtProgressBar(pb, i + burn.in) # update progress bar
@@ -314,6 +349,10 @@ sar_tobit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   beta  <- colMeans(B)[1:k]
   sige  <- colMeans(B)[k+1]
   rho   <- colMeans(B)[k+2]
+  
+  S     <- (I_n - rho * W)
+  fitted.values   <- solve(qr(S), X %*% beta) # E[z | beta] = (I_n - rho * W)^{-1}(X * beta)
+  fitted.response <- pmax(as.numeric(fitted.values), 0)   # y = max(z, 0)
   
   # result
   results       <- NULL
@@ -326,8 +365,8 @@ sar_tobit_mcmc <- function(y, X, W, ndraw=1000, burn.in=100, thinning=1,
   results$sige  <- colMeans(B)[k+1]
   results$rho   <- colMeans(B)[k+2]
   results$coefficients <- colMeans(B)
-  results$fitted.values <- fitted.values
-  #results$fitted.reponse <- fitted.reponse  # fitted values on reponse scale (binary y variable)
+  results$fitted.values   <- fitted.values    # E[z | beta]
+  results$fitted.response <- fitted.response  # fitted values on response scale (censored y variable)
   results$ndraw <- ndraw
   results$nomit <- burn.in
   results$a1        <- a1
@@ -462,6 +501,116 @@ summary.sartobit <- function(object, var_names=NULL, file=NULL,
   return(invisible(coefficients))
 }
 
+# compute marginal effects for every MCMC iteration of the 
+# estimated SAR Tobit model
+# @param object fitted model object
+# @param o degree of approximating the tr(W^i)
+marginal.effects.sartobit <- function (object, o = 100, ...) {
+    if (!inherits(object, "sartobit")) 
+        stop("use only with \"sartobit\" objects")
+    nobs <- object$nobs
+    nvar <- object$nvar
+    p <- ifelse(object$cflag == 0, nvar, nvar - 1)
+    ndraw <- object$ndraw
+    nomit <- object$nomit
+    betadraws <- object$bdraw
+    sigedraws <- object$sdraw
+    rhodraws <- object$pdraw
+    
+    X <- object$X
+    W <- object$W
+    I_n <- sparseMatrix(i = 1:nobs, j = 1:nobs, x = 1)
+    trW.i <- tracesWi(W, o = o, iiter = 50)
+    D <- matrix(NA, ndraw, p)
+    I <- matrix(NA, ndraw, p)
+    T <- matrix(NA, ndraw, p)
+    if (object$cflag == 0) {
+        namesNonConstantParams <- colnames(X)
+    }
+    else {
+        namesNonConstantParams <- colnames(X)[-1]
+    }
+    colnames(T) <- namesNonConstantParams
+    colnames(D) <- namesNonConstantParams
+    colnames(I) <- namesNonConstantParams
+    ones <- rep(1, nobs)
+    for (i in 1:ndraw) {
+        beta  <- betadraws[i, ]
+        beff  <- betadraws[i, -1]    # TODO: check for constant
+        rho   <- rhodraws[i]
+        sigma <- sigedraws[i]
+        S <- I_n - rho * W
+        QR <- qr(S)
+        mu <- qr.coef(QR, X %*% beta)
+        rhovec <- rho^(0:(o - 1))
+        probz <- pnorm(as.numeric(mu) / sigma)     # Phi(Xß/sigma) = Prob(z <= Xß/sigma)
+        dd <- sparseMatrix(i = 1:nobs, j = 1:nobs, x = probz)
+        dir <- as.double(t(probz) %*% trW.i %*% rhovec/nobs)
+        avg_direct <- dir * beff
+        avg_total <- mean(dd %*% qr.coef(QR, ones)) * beff
+        avg_indirect <- avg_total - avg_direct
+        D[i, ] <- avg_direct
+        I[i, ] <- avg_indirect
+        T[i, ] <- avg_total
+    }
+    summaryMarginalEffects <- function(x) {
+        r <- cbind(apply(x, 2, mean), apply(x, 2, sd), apply(x, 
+            2, mean)/apply(x, 2, sd))
+        colnames(r) <- c("marginal.effect", "standard.error", 
+            "z.ratio")
+        return(r)
+    }
+    summary_direct <- summaryMarginalEffects(D)
+    summary_indirect <- summaryMarginalEffects(I)
+    summary_total <- summaryMarginalEffects(T)
+    return(list(direct = D, indirect = I, total = T, summary_direct = summary_direct, 
+        summary_indirect = summary_indirect, summary_total = summary_total))
+}
+
+
+# prints the marginal effects/impacts of the SAR Tobit fit
+impacts.sartobit <- function(obj, file=NULL, 
+  digits = max(3, getOption("digits")-3), ...) {
+  if (!inherits(obj, "sartobit")) 
+    stop("use only with \"sartobit\" objects")
+    
+  if(is.null(file)){file <- ""}#output to the console
+  write(sprintf("--------Marginal Effects--------"), file, append=T)  
+  write(sprintf(""), file, append=T)      
+  
+  #(a) Direct effects
+  write(sprintf("(a) Direct effects"), file, append=T)
+  direct <- cbind(
+   lower_005=apply(obj$direct, 2, quantile, prob=0.05),
+   posterior_mean=colMeans(obj$direct),
+   upper_095=apply(obj$direct, 2, quantile, prob=0.95)
+  )
+  printCoefmat(direct, digits = digits)
+  
+  # (b) Indirect effects
+  write(sprintf(""), file, append=T)      
+  write(sprintf("(b) Indirect effects"), file, append=T)
+  indirect <- cbind(
+   lower_005=apply(obj$indirect, 2, quantile, prob=0.05),
+   posterior_mean=colMeans(obj$indirect),
+   upper_095=apply(obj$indirect, 2, quantile, prob=0.95)
+  )
+  printCoefmat(indirect, digits = digits)
+  
+  # (c) Total effects
+  write(sprintf(""), file, append=T)      
+  write(sprintf("(c) Total effects"), file, append=T)
+  total <- cbind(
+   lower_005=apply(obj$total, 2, quantile, prob=0.05),
+   posterior_mean=colMeans(obj$total),
+   upper_095=apply(obj$total, 2, quantile, prob=0.95)
+  )
+  printCoefmat(total, digits = digits)
+  
+  return(invisible(list(direct=direct, indirect=indirect, total=total)))
+}
+
+
 
 # plot MCMC results for class "sartobit" (draft version);
 # diagnostic plots for results (trace plots, ACF, posterior density function)
@@ -511,4 +660,9 @@ plot.sartobit <- function(x, which=c(1, 2, 3),
      if (!is.null(trueparam)) abline(v=trueparam[i], col="red", lty=2)
    }
  }
+}
+
+# return fitted values of SAR Tobit
+fitted.sartobit <- function(object, ...) {
+  object$fitted.value
 }
