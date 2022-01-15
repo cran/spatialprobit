@@ -1,17 +1,18 @@
 Package: spatialprobit
-Version: 0.9-11
-Date: 2015-09-12
+Version: 1.0
+Date: 2022-01-14
 Title: Spatial Probit Models
 Author: Stefan Wilhelm <wilhelm@financial.com> and Miguel Godinho de Matos <miguelgodinhomatos@cmu.edu>
 Maintainer: Stefan Wilhelm <wilhelm@financial.com>
 Imports: stats
-Depends: R (>= 1.9.0), Matrix, spdep, mvtnorm, tmvtnorm
+Depends: R (>= 1.9.0), Matrix, spdep (>= 1.1-1), spatialreg (>= 1.1-1),
+        mvtnorm, tmvtnorm
 Encoding: latin1
 Suggests: RUnit, testthat
 Description: Bayesian Estimation of Spatial Probit and Tobit Models.
 License: GPL (>= 2)
-URL: http://www.r-project.org
+URL: https://www.r-project.org
 NeedsCompilation: no
-Packaged: 2015-09-17 11:50:36 UTC; stefan_admin
+Packaged: 2022-01-14 16:37:07 UTC; stefan
 Repository: CRAN
-Date/Publication: 2015-09-17 14:49:32
+Date/Publication: 2022-01-15 16:40:02 UTC
