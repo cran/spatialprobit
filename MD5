@@ -1,8 +1,8 @@
-26d84f54b4e9c2c933a051d0ae98a0e1 *DESCRIPTION
-fcbd12f1ce41c75bed13665dd9a47891 *NAMESPACE
-ef3de89bd55c6f4ae0f0b0aa803556a1 *NEWS
+c4e819cb09eb7cf7b8f7dbd15c4d1437 *DESCRIPTION
+27925cc87e07c2249c5ae70b099972b2 *NAMESPACE
+a38ca396f43406397424e175e0034dcd *NEWS
 84ea6a443ef4523e2d1e47182a4358c7 *R/LeSagePaceExperiment.R
-2dc30b0a6fc6a2f56e54989062d3aa36 *R/SpatialProbit-MCMC.R
+6e3cc42f0b0c7351f1ceaa8145b8092a *R/SpatialProbit-MCMC.R
 139be14d8fbe46eb2ee7d36ff857653c *R/kNearestNeighbors.R
 46b1973489748ed34d55ef17c7a0c43b *R/marginal.effects.R
 f9c9a78ea40a954ec62be15cf4f3496a *R/matrix_operations.r
@@ -10,7 +10,7 @@ f9c9a78ea40a954ec62be15cf4f3496a *R/matrix_operations.r
 eb05db809f6c7efd5a0ae6bbfc23306c *R/rtnorm.R
 e3aceb3b597c9228470487c1a869b421 *R/sar_base.r
 615f4b216f9e021a765f68dbcb1b1db7 *R/sarorderedprobit.R
-30020ae08def3fe34128af0489f667dd *R/sarprobit.R
+5270fab0ecdabd4abc5b7e85130efd0f *R/sarprobit.R
 dad81114043c1a3d1ed7fa80f3b948c8 *R/sartobit.R
 1bb35a2c493639815853f67f8551eb6b *R/sem.R
 1cd513ac1d29d1d09f0bef6a53357b08 *R/semprobit.R
@@ -25,7 +25,7 @@ ec4f6ad9ac548d28d8942f547075ec05 *inst/tests/test-qr-solve.R
 8b2f884462ba9244c7e76122699aed31 *inst/tests/test-sarprobit.R
 c054e624372731c8c0245250c519c202 *inst/tests/test-semprobit.R
 81b45a2120ee71eec1d9eeb13b915263 *man/CKM.Rd
-5df55df0d692a09bcf45a9111b5c2152 *man/Katrina.Rd
+b40af08e99a52df7c1c5d2eaac2a112c *man/Katrina.Rd
 f873089b12d9c8a2e4bef1250d0c004b *man/LeSagePaceExperiment.Rd
 9ee65b1c044e08004f31d690c5dc27f2 *man/c.sarprobit.Rd
 24826ff1c784d2e46488d8fab6ee929f *man/coef.sarprobit.Rd
@@ -36,7 +36,7 @@ b7a8e6421716c74cda2eff38000c4ccb *man/marginal.effects.sarprobit.Rd
 5440be22cfd49ed817a4597802a60241 *man/plot.sarprobit.Rd
 866331e325d11c200a566c1625cc4843 *man/sar_eigs.Rd
 64c52a435f0df1c8bd3c3dcdd2fd7bdd *man/sar_lndet.Rd
-9fef627315ca5e377ad7cb389f3c7d7d *man/sarorderedprobit.Rd
+f788c37ed3102a2674efea4afee4f6db *man/sarorderedprobit.Rd
 dd1750a518f8fb434db1c49cdd6bd283 *man/sarprobit.Rd
 b700e76b4bb74394644a226d9521d085 *man/sartobit.Rd
 f559aeb06b5e7ca1d78615aab1d1dc45 *man/semprobit.Rd
