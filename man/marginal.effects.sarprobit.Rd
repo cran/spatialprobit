@@ -110,6 +110,11 @@ Specifically, for the SAR Tobit model the \eqn{n \times n}{n x n} matrix of marg
 
 }
 
+\value{
+This function returns a list with 6 elements: 'direct' for direct effects, 'indirect' for indirect effects, 
+'total' for total effects, and 'summary_direct', 'summary_indirect', 'summary_total' for the summary of direct, indirect and total effects.
+}
+
 \section{Warning}{
 1. Although the direct impacts can be efficiently estimated, the computation
 of the indirect effects require the inversion of a \eqn{n \times n}{n x n} matrix
@@ -131,11 +136,11 @@ Stefan Wilhelm <wilhelm@financial.com>
 }
 
 \examples{
-\dontrun{
+\donttest{
 require(spatialprobit)
 
 # number of observations
-n <- 10
+n <- 100
 
 # true parameters
 beta <- c(0, 1, -1)
@@ -151,8 +156,8 @@ I_n <- sparseMatrix(i=1:n, j=1:n, x=1)
 m <- 6
 
 # spatial weight matrix with m=6 nearest neighbors
-W <- sparseMatrix(i=rep(1:n, each=m), 
-  j=replicate(n, sample(x=1:n, size=m, replace=FALSE)), x=1/m, dims=c(n, n))
+# W must not have non-zeros in the main diagonal!
+W <- kNearestNeighbors(x = rnorm(n), y = rnorm(n), k = m)
 
 # innovations
 eps <- rnorm(n=n, mean=0, sd=1)
@@ -178,7 +183,7 @@ impacts(sarprobit.fit1)
 ################################################################################
 
 # Value of "a" is not stated in book! 
-# Assuming a=-1 which gives approx. 50% censoring
+# Assuming a=-1 which gives approx. 50\% censoring
  library(spatialprobit)
 
 a <- -1   # control degree of censored observation
@@ -205,7 +210,8 @@ ind <- which(y <=0)
 y[ind] <- 0
 
 # Fit SAR Tobit (with approx. 50\% censored observations)
-fit_sartobit <- sartobit(y ~ x,W,ndraw=1000,burn.in=200, showProgress=TRUE)
+fit_sartobit <- sartobit(y ~ x, W, ndraw=1000, burn.in=200, 
+  computeMarginalEffects=TRUE, showProgress=TRUE)
 
 # print impacts
 impacts(fit_sartobit)

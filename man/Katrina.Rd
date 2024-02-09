@@ -98,13 +98,15 @@ table(y3) # 478 of the 673 firms reopened during 0-12 months horizon, p.1016
 detach(Katrina)
 
 \dontrun{
-# plot observations in New Orleans map
+# plot observations in New Orleans map; Google requires an API key; see `ggmap::register_google()`
 if (require(ggmap)) {
   qmplot(long, lat, data = Katrina, maptype="roadmap", source="google")
 }
+}
 
+\donttest{
 # replicate LeSage et al. (2011), Table 3, p.1017
-require(spdep)
+require(spatialreg)
  
 # (a) 0-3 months time horizon
 # LeSage et al. (2011) use k=11 nearest neighbors in this case
@@ -112,11 +114,12 @@ nb <- knn2nb(knearneigh(cbind(Katrina$lat, Katrina$long), k=11))
 listw <- nb2listw(nb, style="W")
 W1 <- as(as_dgRMatrix_listw(listw), "CsparseMatrix")
 
-fit1 <- sarprobit(y1 ~ flood_depth + log_medinc + small_size + large_size +
-  low_status_customers +  high_status_customers + 
-  owntype_sole_proprietor + owntype_national_chain, 
-  W=W1, data=Katrina, ndraw=600, burn.in = 100, showProgress=TRUE)
-summary(fit1)
+# Note: cannot replicate (a) 0-3 months time horizon model as of February 2024  
+#fit1 <- sarprobit(y1 ~ flood_depth + log_medinc + small_size + large_size +
+#  low_status_customers +  high_status_customers + 
+#  owntype_sole_proprietor + owntype_national_chain, 
+#  W=W1, data=Katrina, ndraw=600, burn.in = 100, showProgress=FALSE)
+#summary(fit1)
   
 # (b) 0-6 months time horizon
 # LeSage et al. (2011) use k=15 nearest neighbors
@@ -127,7 +130,7 @@ W2 <- as(as_dgRMatrix_listw(listw), "CsparseMatrix")
 fit2 <- sarprobit(y2 ~ flood_depth + log_medinc + small_size + large_size +
   low_status_customers + high_status_customers + 
   owntype_sole_proprietor + owntype_national_chain, 
-  W=W2, data=Katrina, ndraw=600, burn.in = 100, showProgress=TRUE)
+  W=W2, data=Katrina, ndraw=600, burn.in = 100, showProgress=FALSE)
 summary(fit2)  
 
 # (c) 0-12 months time horizon
@@ -136,12 +139,12 @@ W3 <- W2
 fit3 <- sarprobit(y3 ~ flood_depth + log_medinc + small_size + large_size +
   low_status_customers + high_status_customers + 
   owntype_sole_proprietor + owntype_national_chain, 
-  W=W3, data=Katrina, ndraw=600, burn.in = 100, showProgress=TRUE)
+  W=W3, data=Katrina, ndraw=600, burn.in = 100, showProgress=FALSE)
 summary(fit3)
 
 # replicate LeSage et al. (2011), Table 4, p.1018
 # SAR probit model effects estimates for the 0-3-month time horizon
-impacts(fit1)  
+# impacts(fit1)  
 
 # replicate LeSage et al. (2011), Table 5, p.1019
 # SAR probit model effects estimates for the 0-6-month time horizon

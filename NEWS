@@ -1,5 +1,19 @@
 # User visible changes in spatialprobit package
 
+## changes in spatialprobit 1.0.4 (2024-02-06)
+* Replaced all \dontrun in *.Rd files, except for Katrina.Rd which requires a Google API Key
+* Fixed some examples in *.Rd files
+
+## changes in spatialprobit 1.0.3 (2023-12-08)
+* Some changes to DESCRIPTION and .Rd documentation files were required by CRAN:
+** Added Authors@R field
+** Added ISBN/DOI references to LeSage and Pace (2009) and Wilhelm and de Matos (2013)
+** Replaced \dontrun with \donttest in Rd examples
+* replaced non-ASCII characters in R files
+
+## changes in spatialprobit 1.0.2 (2023-11-12)
+* Bugfix request from Prof Ripley: Package declares encoding as UTF-8 but had files in the R directory which were not UTF-8. This causes segfaults on attempted installation with macOS 14.1.
+
 ## changes in spatialprobit 1.0.1 (2023-08-21)
 * `if (packageVersion("spdep") < "1.2")` replaces the former numeric version numbering 1.2 with a suitable character version "1.2", 
 so numeric_version() and package_version() work properly (see also https://bugs.r-project.org/show_bug.cgi?id=18548)
